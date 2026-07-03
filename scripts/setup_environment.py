@@ -50,9 +50,9 @@ class SkillEnvironment:
         if self.requirements_file.exists():
             print("📦 Installing dependencies...")
             try:
-                # Upgrade pip first
+                # Use python -m pip so Windows can replace pip.exe cleanly.
                 subprocess.run(
-                    [str(self.venv_pip), "install", "--upgrade", "pip"],
+                    [str(self.venv_python), "-m", "pip", "install", "--upgrade", "pip"],
                     check=True,
                     capture_output=True,
                     text=True

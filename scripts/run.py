@@ -4,8 +4,14 @@ Universal runner for NotebookLM skill scripts
 Ensures all scripts run with the correct virtual environment
 """
 
-import os
 import sys
+
+# Keep emoji/status output from crashing on Windows consoles using cp1252.
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+
+import os
 import subprocess
 from pathlib import Path
 
@@ -34,8 +40,10 @@ def ensure_venv():
         print("🔧 First-time setup: Creating virtual environment...")
         print("   This may take a minute...")
 
-        # Run setup with system Python
-        result = subprocess.run([sys.executable, str(setup_script)])
+        # Run setup with system Python and force UTF-8 output for Windows.
+        setup_env = os.environ.copy()
+        setup_env.setdefault('PYTHONIOENCODING', 'utf-8')
+        result = subprocess.run([sys.executable, str(setup_script)], env=setup_env)
         if result.returncode != 0:
             print("❌ Failed to set up environment")
             sys.exit(1)
@@ -86,9 +94,12 @@ def main():
     # Build command
     cmd = [str(venv_python), str(script_path)] + script_args
 
+    child_env = os.environ.copy()
+    child_env.setdefault('PYTHONIOENCODING', 'utf-8')
+
     # Run the script
     try:
-        result = subprocess.run(cmd)
+        result = subprocess.run(cmd, env=child_env)
         sys.exit(result.returncode)
     except KeyboardInterrupt:
         print("\n⚠️ Interrupted by user")
