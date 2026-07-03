@@ -66,27 +66,36 @@ class StealthUtils:
 
     @staticmethod
     def human_type(page: Page, selector: str, text: str, wpm_min: int = 320, wpm_max: int = 480):
-        """Type with human-like speed"""
-        element = page.query_selector(selector)
-        if not element:
-            # Try waiting if not immediately found
-            try:
-                element = page.wait_for_selector(selector, timeout=2000)
-            except:
-                pass
-        
-        if not element:
-            print(f"⚠️ Element not found for typing: {selector}")
-            return
+        """Type into a query field that may be re-rendered by NotebookLM."""
+        deadline = time.time() + 30
+        attempt = 0
+        last_error = None
 
-        # Click to focus
-        element.click()
-        
-        # Type
-        for char in text:
-            element.type(char, delay=random.uniform(25, 75))
-            if random.random() < 0.05:
-                time.sleep(random.uniform(0.15, 0.4))
+        while time.time() < deadline:
+            attempt += 1
+            try:
+                loc = page.locator(selector).first
+                loc.wait_for(state="visible", timeout=5000)
+                loc.click(timeout=3000)
+                loc.fill("", timeout=3000)
+                loc.fill(text, timeout=3000)
+
+                # Real key events help Angular Material enable the send button
+                # after a programmatic fill without changing the final text.
+                try:
+                    loc.press("Space", timeout=2000)
+                    loc.press("Backspace", timeout=2000)
+                except Exception:
+                    pass
+
+                value = loc.input_value(timeout=2000)
+                if value == text or value.strip() == text.strip():
+                    return
+            except Exception as e:
+                last_error = e
+            time.sleep(0.6)
+
+        print(f"⚠️ human_type failed after {attempt} attempts: {last_error}")
 
     @staticmethod
     def realistic_click(page: Page, selector: str):

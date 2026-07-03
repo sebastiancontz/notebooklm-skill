@@ -13,6 +13,7 @@ import argparse
 import sys
 import time
 import re
+from collections import Counter
 from pathlib import Path
 
 from patchright.sync_api import sync_playwright
@@ -110,25 +111,27 @@ def ask_notebooklm(question: str, notebook_url: str, headless: bool = True) -> s
         # snapshotting — otherwise baseline is incomplete and a historical answer
         # leaks through as "new".
         def snapshot_texts():
-            texts = set()
             for selector in RESPONSE_SELECTORS:
                 try:
-                    for el in page.query_selector_all(selector):
-                        t = el.inner_text().strip()
-                        if t:
-                            texts.add(t)
+                    texts = [
+                        (el.inner_text() or "").strip()
+                        for el in page.query_selector_all(selector)
+                    ]
+                    texts = [text for text in texts if text]
+                    if texts:
+                        return texts
                 except Exception:
                     continue
-            return texts
+            return []
 
-        baseline_texts = snapshot_texts()
+        baseline_counter = Counter(snapshot_texts())
         settle_deadline = time.time() + 15
         while time.time() < settle_deadline:
             time.sleep(1.5)
-            now = snapshot_texts()
-            if now == baseline_texts:  # history stopped changing
+            now_counter = Counter(snapshot_texts())
+            if now_counter == baseline_counter:  # history stopped changing
                 break
-            baseline_texts = now
+            baseline_counter = now_counter
 
         # Type question (human-like, fast)
         print("  ⏳ Typing question...")
@@ -137,9 +140,46 @@ def ask_notebooklm(question: str, notebook_url: str, headless: bool = True) -> s
         input_selector = QUERY_INPUT_SELECTORS[0]
         StealthUtils.human_type(page, input_selector, question)
 
+        def click_send_button():
+            find_send_button = """() => {
+                const buttons = Array.from(document.querySelectorAll('button'));
+                return buttons.find((button) => {
+                    if (button.disabled) return false;
+                    const label = button.getAttribute('aria-label') || '';
+                    const icon = button.querySelector('mat-icon');
+                    const iconText = icon
+                        ? ((icon.getAttribute('fonticon') || icon.textContent) || '').trim()
+                        : '';
+                    return /send|submit/i.test(label)
+                        || ['send', 'arrow_forward', 'arrow_upward'].includes(iconText);
+                }) || null;
+            }"""
+
+            deadline = time.time() + 8
+            while time.time() < deadline:
+                try:
+                    button = page.evaluate_handle(find_send_button).as_element()
+                    if button:
+                        button.click(timeout=2000)
+                        return True
+                except Exception:
+                    pass
+
+                try:
+                    page.locator(input_selector).first.click(timeout=1000)
+                    page.keyboard.type(" ")
+                    page.keyboard.press("Backspace")
+                except Exception:
+                    pass
+                time.sleep(0.5)
+
+            return False
+
         # Submit
         print("  📤 Submitting...")
-        page.keyboard.press("Enter")
+        if not click_send_button():
+            print("  ⚠️ Send button not found/enabled; falling back to Enter")
+            page.keyboard.press("Enter")
 
         # Small pause
         StealthUtils.random_delay(500, 1500)
@@ -150,6 +190,7 @@ def ask_notebooklm(question: str, notebook_url: str, headless: bool = True) -> s
         answer = None
         stable_count = 0
         last_text = None
+        placeholders = ("finding relevant info", "finding sources", "analyzing")
         deadline = time.time() + 120  # 2 minutes timeout
 
         while time.time() < deadline:
@@ -162,34 +203,23 @@ def ask_notebooklm(question: str, notebook_url: str, headless: bool = True) -> s
             except:
                 pass
 
-            # Try to find response with MCP selectors
-            for selector in RESPONSE_SELECTORS:
-                try:
-                    elements = page.query_selector_all(selector)
-                    # Pick the bubble whose text was NOT present before we asked:
-                    # that's the new answer. Order-independent — avoids grabbing a
-                    # historical answer that happens to sit last in the DOM.
-                    fresh = [
-                        t for t in (e.inner_text().strip() for e in elements)
-                        if t and t not in baseline_texts
-                    ]
-                    if fresh:
-                        text = fresh[-1]
+            current_counter = Counter(snapshot_texts())
+            fresh_texts = [
+                text for text, count in current_counter.items()
+                if count > baseline_counter[text]
+                and not any(placeholder in text.lower() for placeholder in placeholders)
+            ]
 
-                        if text:
-                            if text == last_text:
-                                stable_count += 1
-                                if stable_count >= 3:  # Stable for 3 polls
-                                    answer = text
-                                    break
-                            else:
-                                stable_count = 0
-                                last_text = text
-                except:
-                    continue
-
-            if answer:
-                break
+            if fresh_texts:
+                text = max(fresh_texts, key=len)
+                if text == last_text:
+                    stable_count += 1
+                    if stable_count >= 3:  # Stable for 3 polls
+                        answer = text
+                        break
+                else:
+                    stable_count = 0
+                    last_text = text
 
             time.sleep(1)
 
@@ -198,6 +228,11 @@ def ask_notebooklm(question: str, notebook_url: str, headless: bool = True) -> s
             return None
 
         print("  ✅ Got answer!")
+        try:
+            auth._save_browser_state(context)
+        except Exception as e:
+            print(f"  ⚠️ Could not refresh saved session (non-fatal): {e}")
+
         # Add follow-up reminder to encourage Claude to ask more questions
         return answer + FOLLOW_UP_REMINDER
 
