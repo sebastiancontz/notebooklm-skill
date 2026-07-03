@@ -31,6 +31,9 @@ python scripts/run.py ask_question.py --question "..." --notebook-url "https://.
 
 # Show browser (debugging)
 python scripts/run.py ask_question.py --question "..." --show-browser
+
+# Show capture diagnostics
+python scripts/run.py ask_question.py --question "..." --debug
 ```
 
 **Parameters:**
@@ -38,6 +41,7 @@ python scripts/run.py ask_question.py --question "..." --show-browser
 - `--notebook-id`: Use notebook from library
 - `--notebook-url`: Use URL directly
 - `--show-browser`: Make browser visible
+- `--debug`: Show detailed DOM capture diagnostics
 
 **Returns:** Answer text with follow-up prompt appended
 
@@ -73,6 +77,9 @@ python scripts/run.py notebook_manager.py activate --id notebook-id
 # Remove notebook
 python scripts/run.py notebook_manager.py remove --id notebook-id
 
+# Update metadata
+python scripts/run.py notebook_manager.py update --id notebook-id --name "New name"
+
 # Show statistics
 python scripts/run.py notebook_manager.py stats
 ```
@@ -83,6 +90,7 @@ python scripts/run.py notebook_manager.py stats
 - `search`: Find notebooks by keyword
 - `activate`: Set default notebook
 - `remove`: Delete from library
+- `update`: Update notebook metadata
 - `stats`: Display library statistics
 
 ### auth_manager.py
@@ -94,6 +102,7 @@ python scripts/run.py auth_manager.py setup
 
 # Check status
 python scripts/run.py auth_manager.py status
+python scripts/run.py auth_manager.py status --validate
 
 # Re-authenticate
 python scripts/run.py auth_manager.py reauth
@@ -105,6 +114,7 @@ python scripts/run.py auth_manager.py clear
 **Commands:**
 - `setup`: Initial authentication (browser MUST be visible)
 - `status`: Check if authenticated
+- `status --validate`: Live-check stored auth against NotebookLM
 - `reauth`: Clear and re-setup
 - `clear`: Remove all auth data
 
@@ -136,6 +146,7 @@ Script wrapper that handles environment setup.
 ```bash
 # Usage
 python scripts/run.py [script_name].py [arguments]
+python scripts/run.py --repair
 
 # Examples
 python scripts/run.py auth_manager.py status
@@ -145,8 +156,9 @@ python scripts/run.py ask_question.py --question "..."
 **Automatic actions:**
 1. Creates `.venv` if missing
 2. Installs dependencies
-3. Activates environment
-4. Executes target script
+3. Repairs missing core dependencies in an existing `.venv`
+4. Activates environment
+5. Executes target script
 
 ## Python API Usage
 
@@ -201,10 +213,8 @@ Optional `.env` file configuration:
 ```env
 HEADLESS=false           # Browser visibility
 SHOW_BROWSER=false       # Default display
-STEALTH_ENABLED=true     # Human behavior
-TYPING_WPM_MIN=160       # Typing speed
-TYPING_WPM_MAX=240
 DEFAULT_NOTEBOOK_ID=     # Default notebook
+NOTEBOOKLM_DEBUG=1       # Detailed diagnostics
 ```
 
 ## Error Handling

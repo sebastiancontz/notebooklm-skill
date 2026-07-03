@@ -60,7 +60,7 @@ class SkillEnvironment:
 
                 # Install requirements
                 result = subprocess.run(
-                    [str(self.venv_pip), "install", "-r", str(self.requirements_file)],
+                    [str(self.venv_python), "-m", "pip", "install", "-r", str(self.requirements_file)],
                     check=True,
                     capture_output=True,
                     text=True

@@ -65,7 +65,7 @@ class StealthUtils:
         time.sleep(random.uniform(min_ms / 1000, max_ms / 1000))
 
     @staticmethod
-    def human_type(page: Page, selector: str, text: str, wpm_min: int = 320, wpm_max: int = 480):
+    def human_type(page: Page, selector: str, text: str, wpm_min: int = 320, wpm_max: int = 480) -> bool:
         """Type into a query field that may be re-rendered by NotebookLM."""
         deadline = time.time() + 30
         attempt = 0
@@ -90,12 +90,13 @@ class StealthUtils:
 
                 value = loc.input_value(timeout=2000)
                 if value == text or value.strip() == text.strip():
-                    return
+                    return True
             except Exception as e:
                 last_error = e
             time.sleep(0.6)
 
         print(f"⚠️ human_type failed after {attempt} attempts: {last_error}")
+        return False
 
     @staticmethod
     def realistic_click(page: Page, selector: str):

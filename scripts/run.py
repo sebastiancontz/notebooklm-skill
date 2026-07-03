@@ -29,44 +29,72 @@ def get_venv_python():
     return venv_python
 
 
+def run_setup(setup_script: Path) -> int:
+    """Run environment setup with UTF-8-safe output."""
+    setup_env = os.environ.copy()
+    setup_env.setdefault('PYTHONIOENCODING', 'utf-8')
+    return subprocess.run([sys.executable, str(setup_script)], env=setup_env).returncode
+
+
+def venv_has_required_packages(venv_python: Path) -> bool:
+    """Check that an existing venv can import the runtime dependencies."""
+    if not venv_python.exists():
+        return False
+
+    result = subprocess.run(
+        [str(venv_python), "-c", "import patchright, dotenv"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    return result.returncode == 0
+
+
 def ensure_venv():
     """Ensure virtual environment exists"""
     skill_dir = Path(__file__).parent.parent
     venv_dir = skill_dir / ".venv"
     setup_script = skill_dir / "scripts" / "setup_environment.py"
+    venv_python = get_venv_python()
 
     # Check if venv exists
     if not venv_dir.exists():
         print("🔧 First-time setup: Creating virtual environment...")
         print("   This may take a minute...")
 
-        # Run setup with system Python and force UTF-8 output for Windows.
-        setup_env = os.environ.copy()
-        setup_env.setdefault('PYTHONIOENCODING', 'utf-8')
-        result = subprocess.run([sys.executable, str(setup_script)], env=setup_env)
-        if result.returncode != 0:
+        if run_setup(setup_script) != 0:
             print("❌ Failed to set up environment")
             sys.exit(1)
 
         print("✅ Environment ready!")
+    elif not venv_has_required_packages(venv_python):
+        print("🔧 Repairing virtual environment dependencies...")
+        if run_setup(setup_script) != 0:
+            print("❌ Failed to repair environment")
+            sys.exit(1)
+        print("✅ Environment repaired!")
 
-    return get_venv_python()
+    return venv_python
 
 
 def main():
     """Main runner"""
     if len(sys.argv) < 2:
         print("Usage: python run.py <script_name> [args...]")
+        print("       python run.py --repair")
         print("\nAvailable scripts:")
         print("  ask_question.py    - Query NotebookLM")
         print("  notebook_manager.py - Manage notebook library")
-        print("  session_manager.py  - Manage sessions")
         print("  auth_manager.py     - Handle authentication")
         print("  cleanup_manager.py  - Clean up skill data")
         sys.exit(1)
 
     script_name = sys.argv[1]
     script_args = sys.argv[2:]
+    skill_dir = Path(__file__).parent.parent
+    setup_script = skill_dir / "scripts" / "setup_environment.py"
+
+    if script_name == "--repair":
+        sys.exit(run_setup(setup_script))
 
     # Handle both "scripts/script.py" and "script.py" formats
     if script_name.startswith('scripts/'):
@@ -78,7 +106,6 @@ def main():
         script_name += '.py'
 
     # Get script path
-    skill_dir = Path(__file__).parent.parent
     script_path = skill_dir / "scripts" / script_name
 
     if not script_path.exists():

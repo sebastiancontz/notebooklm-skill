@@ -6,7 +6,7 @@
 |-------|----------|
 | ModuleNotFoundError | Use `python scripts/run.py [script].py` |
 | Authentication failed | Browser must be visible for setup |
-| Browser crash | `python scripts/run.py cleanup_manager.py --preserve-library` |
+| Browser crash | `python scripts/run.py cleanup_manager.py --confirm --preserve-library` |
 | Rate limit hit | Wait 1 hour or switch accounts |
 | Notebook not found | `python scripts/run.py notebook_manager.py list` |
 | Script not working | Always use run.py wrapper |
@@ -50,7 +50,7 @@ python scripts/run.py auth_manager.py reauth
 **Solution:**
 ```bash
 # Clear old authentication
-python scripts/run.py cleanup_manager.py --preserve-library
+python scripts/run.py cleanup_manager.py --confirm --preserve-library
 
 # Fresh authentication setup
 python scripts/run.py auth_manager.py setup --timeout 15
@@ -80,7 +80,6 @@ TimeoutError: Waiting for selector failed
 **Solution:**
 ```bash
 # Kill hanging processes
-pkill -f chromium
 pkill -f chrome
 
 # Clean browser state
@@ -93,14 +92,14 @@ python scripts/run.py auth_manager.py reauth
 #### Browser not found error
 **Solution:**
 ```bash
-# Install Chromium via run.py (automatic)
+# Install Chrome via run.py (automatic)
 python scripts/run.py auth_manager.py status
-# run.py will install Chromium automatically
+# run.py will install Chrome automatically
 
 # Or manual install if needed
 cd ~/.claude/skills/notebooklm
 source .venv/bin/activate
-python -m patchright install chromium
+python -m patchright install chrome
 ```
 
 ### Rate Limiting
@@ -276,7 +275,7 @@ except Exception as e:
 ```bash
 #!/bin/bash
 # Kill processes
-pkill -f chromium
+pkill -f chrome
 
 # Backup library if exists
 if [ -f ~/.claude/skills/notebooklm/data/library.json ]; then
@@ -323,7 +322,7 @@ python scripts/run.py auth_manager.py status
 ### Browser Errors
 | Error | Cause | Solution |
 |-------|-------|----------|
-| Browser not found | Chromium missing | Use run.py (auto-installs) |
+| Browser not found | Chrome missing | Use `python scripts/run.py --repair` |
 | Connection refused | Browser crashed | Kill processes, restart |
 | Timeout waiting | Page slow | Increase timeout |
 | Context closed | Browser terminated | Check logs for crashes |

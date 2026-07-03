@@ -297,7 +297,8 @@ def main():
     setup_parser.add_argument('--timeout', type=float, default=10, help='Login timeout in minutes (default: 10)')
 
     # Status command
-    subparsers.add_parser('status', help='Check authentication status')
+    status_parser = subparsers.add_parser('status', help='Check authentication status')
+    status_parser.add_argument('--validate', action='store_true', help='Check stored auth against NotebookLM')
 
     # Validate command
     subparsers.add_parser('validate', help='Validate authentication')
@@ -327,11 +328,14 @@ def main():
         info = auth.get_auth_info()
         print("\n🔐 Authentication Status:")
         print(f"  Authenticated: {'Yes' if info['authenticated'] else 'No'}")
+        print("  Live validation: Not checked" if not args.validate else "  Live validation: Checking...")
         if info.get('state_age_hours'):
             print(f"  State age: {info['state_age_hours']:.1f} hours")
         if info.get('authenticated_at_iso'):
             print(f"  Last auth: {info['authenticated_at_iso']}")
         print(f"  State file: {info['state_file']}")
+        if args.validate:
+            print(f"  Validated: {'Yes' if auth.validate_auth() else 'No'}")
 
     elif args.command == 'validate':
         if auth.validate_auth():

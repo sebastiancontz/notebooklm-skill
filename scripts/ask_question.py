@@ -10,7 +10,6 @@ See: https://github.com/microsoft/playwright/issues/36139
 """
 
 import argparse
-import os
 import sys
 import time
 import re
@@ -24,7 +23,13 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from auth_manager import AuthManager
 from notebook_manager import NotebookLibrary
-from config import QUERY_INPUT_SELECTORS, RESPONSE_SELECTORS
+from config import (
+    DEFAULT_HEADLESS,
+    DEFAULT_NOTEBOOK_ID,
+    NOTEBOOKLM_DEBUG,
+    QUERY_INPUT_SELECTORS,
+    SHOW_BROWSER_DEFAULT,
+)
 from browser_utils import BrowserFactory, StealthUtils
 
 
@@ -56,7 +61,7 @@ def ask_notebooklm(
     Returns:
         Answer text from NotebookLM
     """
-    debug_enabled = debug or os.getenv("NOTEBOOKLM_DEBUG", "").lower() in {"1", "true", "yes", "on"}
+    debug_enabled = debug or NOTEBOOKLM_DEBUG
 
     def debug_log(message: str):
         if debug_enabled:
@@ -95,6 +100,7 @@ def ask_notebooklm(
         # Wait for query input (MCP approach)
         debug_log("  ⏳ Waiting for query input...")
         query_element = None
+        input_selector = None
 
         for selector in QUERY_INPUT_SELECTORS:
             try:
@@ -104,6 +110,7 @@ def ask_notebooklm(
                     state="visible"  # Only check visibility, not disabled!
                 )
                 if query_element:
+                    input_selector = selector
                     debug_log(f"  ✓ Found input: {selector}")
                     break
             except:
@@ -192,9 +199,9 @@ def ask_notebooklm(
         # Type question (human-like, fast)
         debug_log("  ⏳ Typing question...")
 
-        # Use primary selector for typing
-        input_selector = QUERY_INPUT_SELECTORS[0]
-        StealthUtils.human_type(page, input_selector, question)
+        if not StealthUtils.human_type(page, input_selector, question):
+            print("  ❌ Could not confirm question text before submit")
+            return None
 
         def click_send_button():
             find_send_button = """() => {
@@ -367,24 +374,38 @@ def main():
 
     args = parser.parse_args()
 
+    debug_enabled = args.debug or NOTEBOOKLM_DEBUG
+
+    def debug_log(message: str):
+        if debug_enabled:
+            print(message)
+
     # Resolve notebook URL
     notebook_url = args.notebook_url
+    notebook_id = args.notebook_id or DEFAULT_NOTEBOOK_ID
+    notebook_id_used = None
+    library = None
 
-    if not notebook_url and args.notebook_id:
+    if not notebook_url and notebook_id:
         library = NotebookLibrary()
-        notebook = library.get_notebook(args.notebook_id)
+        notebook = library.get_notebook(notebook_id)
         if notebook:
             notebook_url = notebook['url']
+            notebook_id_used = notebook_id
         else:
-            print(f"❌ Notebook '{args.notebook_id}' not found")
-            return 1
+            if args.notebook_id:
+                print(f"❌ Notebook '{args.notebook_id}' not found")
+                return 1
+            debug_log(f"⚠️ DEFAULT_NOTEBOOK_ID '{notebook_id}' not found; falling back to active notebook")
 
     if not notebook_url:
         # Check for active notebook first
-        library = NotebookLibrary()
+        if library is None:
+            library = NotebookLibrary()
         active = library.get_active_notebook()
         if active:
             notebook_url = active['url']
+            notebook_id_used = active['id']
             print(f"📚 Using active notebook: {active['name']}")
         else:
             # Show available notebooks
@@ -405,11 +426,16 @@ def main():
     answer = ask_notebooklm(
         question=args.question,
         notebook_url=notebook_url,
-        headless=not args.show_browser,
+        headless=not (args.show_browser or SHOW_BROWSER_DEFAULT or not DEFAULT_HEADLESS),
         debug=args.debug
     )
 
     if answer:
+        if notebook_id_used and library:
+            try:
+                library.increment_use_count(notebook_id_used)
+            except Exception as e:
+                debug_log(f"⚠️ Could not update notebook use count: {e}")
         print("\n" + "=" * 60)
         print(f"Question: {args.question}")
         print("=" * 60)
