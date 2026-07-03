@@ -100,9 +100,39 @@ def ask_notebooklm(question: str, notebook_url: str, headless: bool = True) -> s
             print("  ❌ Could not find query input")
             return None
 
+        # Baseline: capture the TEXT of every answer bubble already on screen
+        # BEFORE asking. The notebook persists chat history AND renders messages
+        # out of chronological order (new answers can land mid-list, the first
+        # answer stays last), so we cannot trust elements[-1]. Instead we match
+        # by text: after asking, the only non-baseline bubble is the new answer.
+        #
+        # The history loads lazily, so we must wait until it stops growing before
+        # snapshotting — otherwise baseline is incomplete and a historical answer
+        # leaks through as "new".
+        def snapshot_texts():
+            texts = set()
+            for selector in RESPONSE_SELECTORS:
+                try:
+                    for el in page.query_selector_all(selector):
+                        t = el.inner_text().strip()
+                        if t:
+                            texts.add(t)
+                except Exception:
+                    continue
+            return texts
+
+        baseline_texts = snapshot_texts()
+        settle_deadline = time.time() + 15
+        while time.time() < settle_deadline:
+            time.sleep(1.5)
+            now = snapshot_texts()
+            if now == baseline_texts:  # history stopped changing
+                break
+            baseline_texts = now
+
         # Type question (human-like, fast)
         print("  ⏳ Typing question...")
-        
+
         # Use primary selector for typing
         input_selector = QUERY_INPUT_SELECTORS[0]
         StealthUtils.human_type(page, input_selector, question)
@@ -136,10 +166,15 @@ def ask_notebooklm(question: str, notebook_url: str, headless: bool = True) -> s
             for selector in RESPONSE_SELECTORS:
                 try:
                     elements = page.query_selector_all(selector)
-                    if elements:
-                        # Get last (newest) response
-                        latest = elements[-1]
-                        text = latest.inner_text().strip()
+                    # Pick the bubble whose text was NOT present before we asked:
+                    # that's the new answer. Order-independent — avoids grabbing a
+                    # historical answer that happens to sit last in the DOM.
+                    fresh = [
+                        t for t in (e.inner_text().strip() for e in elements)
+                        if t and t not in baseline_texts
+                    ]
+                    if fresh:
+                        text = fresh[-1]
 
                         if text:
                             if text == last_text:
