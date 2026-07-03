@@ -101,37 +101,81 @@ def ask_notebooklm(question: str, notebook_url: str, headless: bool = True) -> s
             print("  ❌ Could not find query input")
             return None
 
-        # Baseline: capture the TEXT of every answer bubble already on screen
-        # BEFORE asking. The notebook persists chat history AND renders messages
-        # out of chronological order (new answers can land mid-list, the first
-        # answer stays last), so we cannot trust elements[-1]. Instead we match
-        # by text: after asking, the only non-baseline bubble is the new answer.
-        #
-        # The history loads lazily, so we must wait until it stops growing before
-        # snapshotting — otherwise baseline is incomplete and a historical answer
-        # leaks through as "new".
-        def snapshot_texts():
-            for selector in RESPONSE_SELECTORS:
-                try:
-                    texts = [
-                        (el.inner_text() or "").strip()
-                        for el in page.query_selector_all(selector)
-                    ]
-                    texts = [text for text in texts if text]
-                    if texts:
-                        return texts
-                except Exception:
-                    continue
-            return []
+        def normalize_text(text):
+            return re.sub(r"\s+", " ", (text or "")).strip()
 
-        baseline_counter = Counter(snapshot_texts())
+        def preview(text, max_len=90):
+            text = normalize_text(text)
+            return text if len(text) <= max_len else text[:max_len - 3] + "..."
+
+        def extract_turns():
+            return page.evaluate("""() => {
+                const clean = (text) => (text || '').replace(/\\s+/g, ' ').trim();
+                return Array.from(document.querySelectorAll('.chat-message-pair'))
+                    .map((pair, index) => {
+                        const promptEl = pair.querySelector('.from-user-container .message-text-content');
+                        const answerEl = pair.querySelector('.to-user-container .message-text-content');
+                        return {
+                            index,
+                            prompt: clean(promptEl ? promptEl.innerText : ''),
+                            answer: clean(answerEl ? answerEl.innerText : '')
+                        };
+                    })
+                    .filter((turn) => turn.prompt || turn.answer);
+            }""")
+
+        def count_turn_parts(turns):
+            prompts = sum(1 for turn in turns if turn.get("prompt"))
+            answers = sum(1 for turn in turns if turn.get("answer"))
+            return prompts, answers
+
+        def find_current_turn(turns, before_prompt_counter, target_prompt):
+            matching_turns = [
+                turn for turn in turns
+                if normalize_text(turn.get("prompt")) == target_prompt
+            ]
+            if not matching_turns:
+                return None
+
+            current_prompt_counter = Counter(
+                normalize_text(turn.get("prompt"))
+                for turn in turns
+                if turn.get("prompt")
+            )
+            if current_prompt_counter[target_prompt] <= before_prompt_counter[target_prompt]:
+                return None
+
+            return matching_turns[-1]
+
+        before_turns = extract_turns()
+        before_prompts, before_answers = count_turn_parts(before_turns)
+        before_prompt_counter = Counter(
+            normalize_text(turn.get("prompt"))
+            for turn in before_turns
+            if turn.get("prompt")
+        )
         settle_deadline = time.time() + 15
         while time.time() < settle_deadline:
             time.sleep(1.5)
-            now_counter = Counter(snapshot_texts())
-            if now_counter == baseline_counter:  # history stopped changing
+            now_turns = extract_turns()
+            now_prompts, now_answers = count_turn_parts(now_turns)
+            now_prompt_counter = Counter(
+                normalize_text(turn.get("prompt"))
+                for turn in now_turns
+                if turn.get("prompt")
+            )
+            if (
+                now_prompt_counter == before_prompt_counter
+                and now_prompts == before_prompts
+                and now_answers == before_answers
+            ):
                 break
-            baseline_counter = now_counter
+            before_turns = now_turns
+            before_prompts = now_prompts
+            before_answers = now_answers
+            before_prompt_counter = now_prompt_counter
+
+        print(f"  🔎 Before submit: prompts={before_prompts}, responses={before_answers}")
 
         # Type question (human-like, fast)
         print("  ⏳ Typing question...")
@@ -190,7 +234,10 @@ def ask_notebooklm(question: str, notebook_url: str, headless: bool = True) -> s
         answer = None
         stable_count = 0
         last_text = None
+        captured_turn = None
+        last_turns = []
         placeholders = ("finding relevant info", "finding sources", "analyzing")
+        target_prompt = normalize_text(question)
         deadline = time.time() + 120  # 2 minutes timeout
 
         while time.time() < deadline:
@@ -203,29 +250,69 @@ def ask_notebooklm(question: str, notebook_url: str, headless: bool = True) -> s
             except:
                 pass
 
-            current_counter = Counter(snapshot_texts())
-            fresh_texts = [
-                text for text, count in current_counter.items()
-                if count > baseline_counter[text]
-                and not any(placeholder in text.lower() for placeholder in placeholders)
-            ]
-
-            if fresh_texts:
-                text = max(fresh_texts, key=len)
-                if text == last_text:
-                    stable_count += 1
-                    if stable_count >= 3:  # Stable for 3 polls
-                        answer = text
-                        break
-                else:
-                    stable_count = 0
-                    last_text = text
+            turns = extract_turns()
+            last_turns = turns
+            current_turn = find_current_turn(turns, before_prompt_counter, target_prompt)
+            if current_turn:
+                text = normalize_text(current_turn.get("answer"))
+                if text and not any(placeholder in text.lower() for placeholder in placeholders):
+                    if text == last_text:
+                        stable_count += 1
+                        if stable_count >= 3:  # Stable for 3 polls
+                            answer = text
+                            captured_turn = current_turn
+                            break
+                    else:
+                        stable_count = 0
+                        last_text = text
+                elif current_turn.get("answer"):
+                    print(
+                        "  ↩️ Discarded placeholder answer candidate: "
+                        f"index={current_turn.get('index')}, preview={preview(current_turn.get('answer'))}"
+                    )
+            else:
+                prompt_count, response_count = count_turn_parts(turns)
+                if prompt_count > before_prompts:
+                    last_prompt = next(
+                        (turn.get("prompt") for turn in reversed(turns) if turn.get("prompt")),
+                        ""
+                    )
+                    print(
+                        "  ↩️ Discarded unassociated turn candidate: "
+                        f"prompts={prompt_count}, responses={response_count}, "
+                        f"last_prompt={preview(last_prompt)}"
+                    )
+                    before_prompts = prompt_count
 
             time.sleep(1)
 
         if not answer:
-            print("  ❌ Timeout waiting for answer")
+            prompt_count, response_count = count_turn_parts(last_turns)
+            print(f"  🔎 After timeout: prompts={prompt_count}, responses={response_count}")
+            print("  ❌ Could not confidently associate an answer with the latest prompt")
             return None
+
+        prompt_count, response_count = count_turn_parts(last_turns)
+        print(f"  🔎 After submit: prompts={prompt_count}, responses={response_count}")
+        if captured_turn:
+            print(
+                "  🔎 Captured turn: "
+                f"index={captured_turn.get('index')}, "
+                f"prompt={preview(captured_turn.get('prompt'))}, "
+                f"answer={preview(answer)}"
+            )
+            other_answers = [
+                turn for turn in last_turns
+                if turn.get("answer") and turn.get("index") != captured_turn.get("index")
+            ]
+            if other_answers:
+                longest_other = max(other_answers, key=lambda turn: len(turn.get("answer", "")))
+                if len(longest_other.get("answer", "")) > len(answer):
+                    print(
+                        "  ↩️ Discarded historical answer candidate: "
+                        f"index={longest_other.get('index')}, "
+                        f"preview={preview(longest_other.get('answer'))}"
+                    )
 
         print("  ✅ Got answer!")
         try:
