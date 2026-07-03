@@ -56,20 +56,20 @@ def ask_notebooklm(
     Returns:
         Answer text from NotebookLM
     """
+    debug_enabled = debug or os.getenv("NOTEBOOKLM_DEBUG", "").lower() in {"1", "true", "yes", "on"}
+
+    def debug_log(message: str):
+        if debug_enabled:
+            print(message)
+
     auth = AuthManager()
 
     if not auth.is_authenticated():
         print("⚠️ Not authenticated. Run: python auth_manager.py setup")
         return None
 
-    print(f"💬 Asking: {question}")
-    print(f"📚 Notebook: {notebook_url}")
-
-    debug_enabled = debug or os.getenv("NOTEBOOKLM_DEBUG", "").lower() in {"1", "true", "yes", "on"}
-
-    def debug_log(message: str):
-        if debug_enabled:
-            print(message)
+    debug_log(f"💬 Asking: {question}")
+    debug_log(f"📚 Notebook: {notebook_url}")
 
     playwright = None
     context = None
@@ -86,14 +86,14 @@ def ask_notebooklm(
 
         # Navigate to notebook
         page = context.new_page()
-        print("  🌐 Opening notebook...")
+        debug_log("  🌐 Opening notebook...")
         page.goto(notebook_url, wait_until="domcontentloaded")
 
         # Wait for NotebookLM
         page.wait_for_url(re.compile(r"^https://notebooklm\.google\.com/"), timeout=10000)
 
         # Wait for query input (MCP approach)
-        print("  ⏳ Waiting for query input...")
+        debug_log("  ⏳ Waiting for query input...")
         query_element = None
 
         for selector in QUERY_INPUT_SELECTORS:
@@ -104,7 +104,7 @@ def ask_notebooklm(
                     state="visible"  # Only check visibility, not disabled!
                 )
                 if query_element:
-                    print(f"  ✓ Found input: {selector}")
+                    debug_log(f"  ✓ Found input: {selector}")
                     break
             except:
                 continue
@@ -190,7 +190,7 @@ def ask_notebooklm(
         debug_log(f"  🔎 Before submit: prompts={before_prompts}, responses={before_answers}")
 
         # Type question (human-like, fast)
-        print("  ⏳ Typing question...")
+        debug_log("  ⏳ Typing question...")
 
         # Use primary selector for typing
         input_selector = QUERY_INPUT_SELECTORS[0]
@@ -232,16 +232,16 @@ def ask_notebooklm(
             return False
 
         # Submit
-        print("  📤 Submitting...")
+        debug_log("  📤 Submitting...")
         if not click_send_button():
-            print("  ⚠️ Send button not found/enabled; falling back to Enter")
+            debug_log("  ⚠️ Send button not found/enabled; falling back to Enter")
             page.keyboard.press("Enter")
 
         # Small pause
         StealthUtils.random_delay(500, 1500)
 
         # Wait for response (MCP approach: poll for stable text)
-        print("  ⏳ Waiting for answer...")
+        debug_log("  ⏳ Waiting for answer...")
 
         answer = None
         stable_count = 0
@@ -326,9 +326,9 @@ def ask_notebooklm(
                         f"preview={preview(longest_other.get('answer'))}"
                     )
 
-        print("  ✅ Got answer!")
+        debug_log("  ✅ Got answer!")
         try:
-            auth._save_browser_state(context)
+            auth._save_browser_state(context, quiet=not debug_enabled)
         except Exception as e:
             print(f"  ⚠️ Could not refresh saved session (non-fatal): {e}")
 

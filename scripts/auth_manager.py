@@ -157,12 +157,13 @@ class AuthManager:
                 except Exception:
                     pass
 
-    def _save_browser_state(self, context: BrowserContext):
+    def _save_browser_state(self, context: BrowserContext, quiet: bool = False):
         """Save browser state to disk"""
         try:
             # Save storage state (cookies, localStorage)
             context.storage_state(path=str(self.state_file))
-            print(f"  💾 Saved browser state to: {self.state_file}")
+            if not quiet:
+                print(f"  💾 Saved browser state to: {self.state_file}")
         except Exception as e:
             print(f"  ❌ Failed to save browser state: {e}")
             raise

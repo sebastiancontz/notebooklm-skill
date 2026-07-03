@@ -39,7 +39,8 @@ class NotebookLibrary:
                     data = json.load(f)
                     self.notebooks = data.get('notebooks', {})
                     self.active_notebook_id = data.get('active_notebook_id')
-                    print(f"📚 Loaded library with {len(self.notebooks)} notebooks")
+                    if os.getenv("NOTEBOOKLM_DEBUG", "").lower() in {"1", "true", "yes", "on"}:
+                        print(f"📚 Loaded library with {len(self.notebooks)} notebooks")
             except Exception as e:
                 print(f"⚠️ Error loading library: {e}")
                 self.notebooks = {}
