@@ -10,6 +10,7 @@ See: https://github.com/microsoft/playwright/issues/36139
 """
 
 import argparse
+import os
 import sys
 import time
 import re
@@ -38,7 +39,12 @@ FOLLOW_UP_REMINDER = (
 )
 
 
-def ask_notebooklm(question: str, notebook_url: str, headless: bool = True) -> str:
+def ask_notebooklm(
+    question: str,
+    notebook_url: str,
+    headless: bool = True,
+    debug: bool = False
+) -> str:
     """
     Ask a question to NotebookLM
 
@@ -58,6 +64,12 @@ def ask_notebooklm(question: str, notebook_url: str, headless: bool = True) -> s
 
     print(f"💬 Asking: {question}")
     print(f"📚 Notebook: {notebook_url}")
+
+    debug_enabled = debug or os.getenv("NOTEBOOKLM_DEBUG", "").lower() in {"1", "true", "yes", "on"}
+
+    def debug_log(message: str):
+        if debug_enabled:
+            print(message)
 
     playwright = None
     context = None
@@ -175,7 +187,7 @@ def ask_notebooklm(question: str, notebook_url: str, headless: bool = True) -> s
             before_answers = now_answers
             before_prompt_counter = now_prompt_counter
 
-        print(f"  🔎 Before submit: prompts={before_prompts}, responses={before_answers}")
+        debug_log(f"  🔎 Before submit: prompts={before_prompts}, responses={before_answers}")
 
         # Type question (human-like, fast)
         print("  ⏳ Typing question...")
@@ -266,7 +278,7 @@ def ask_notebooklm(question: str, notebook_url: str, headless: bool = True) -> s
                         stable_count = 0
                         last_text = text
                 elif current_turn.get("answer"):
-                    print(
+                    debug_log(
                         "  ↩️ Discarded placeholder answer candidate: "
                         f"index={current_turn.get('index')}, preview={preview(current_turn.get('answer'))}"
                     )
@@ -277,7 +289,7 @@ def ask_notebooklm(question: str, notebook_url: str, headless: bool = True) -> s
                         (turn.get("prompt") for turn in reversed(turns) if turn.get("prompt")),
                         ""
                     )
-                    print(
+                    debug_log(
                         "  ↩️ Discarded unassociated turn candidate: "
                         f"prompts={prompt_count}, responses={response_count}, "
                         f"last_prompt={preview(last_prompt)}"
@@ -288,14 +300,14 @@ def ask_notebooklm(question: str, notebook_url: str, headless: bool = True) -> s
 
         if not answer:
             prompt_count, response_count = count_turn_parts(last_turns)
-            print(f"  🔎 After timeout: prompts={prompt_count}, responses={response_count}")
+            debug_log(f"  🔎 After timeout: prompts={prompt_count}, responses={response_count}")
             print("  ❌ Could not confidently associate an answer with the latest prompt")
             return None
 
         prompt_count, response_count = count_turn_parts(last_turns)
-        print(f"  🔎 After submit: prompts={prompt_count}, responses={response_count}")
+        debug_log(f"  🔎 After submit: prompts={prompt_count}, responses={response_count}")
         if captured_turn:
-            print(
+            debug_log(
                 "  🔎 Captured turn: "
                 f"index={captured_turn.get('index')}, "
                 f"prompt={preview(captured_turn.get('prompt'))}, "
@@ -308,7 +320,7 @@ def ask_notebooklm(question: str, notebook_url: str, headless: bool = True) -> s
             if other_answers:
                 longest_other = max(other_answers, key=lambda turn: len(turn.get("answer", "")))
                 if len(longest_other.get("answer", "")) > len(answer):
-                    print(
+                    debug_log(
                         "  ↩️ Discarded historical answer candidate: "
                         f"index={longest_other.get('index')}, "
                         f"preview={preview(longest_other.get('answer'))}"
@@ -351,6 +363,7 @@ def main():
     parser.add_argument('--notebook-url', help='NotebookLM notebook URL')
     parser.add_argument('--notebook-id', help='Notebook ID from library')
     parser.add_argument('--show-browser', action='store_true', help='Show browser')
+    parser.add_argument('--debug', action='store_true', help='Show detailed capture diagnostics')
 
     args = parser.parse_args()
 
@@ -392,7 +405,8 @@ def main():
     answer = ask_notebooklm(
         question=args.question,
         notebook_url=notebook_url,
-        headless=not args.show_browser
+        headless=not args.show_browser,
+        debug=args.debug
     )
 
     if answer:
