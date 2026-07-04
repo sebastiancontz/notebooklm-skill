@@ -395,8 +395,10 @@ def main():
         else:
             if args.notebook_id:
                 print(f"❌ Notebook '{args.notebook_id}' not found")
-                return 1
-            debug_log(f"⚠️ DEFAULT_NOTEBOOK_ID '{notebook_id}' not found; falling back to active notebook")
+            else:
+                print(f"❌ DEFAULT_NOTEBOOK_ID '{notebook_id}' (from .env) not found in library")
+                print("   Fix or remove DEFAULT_NOTEBOOK_ID, or pass --notebook-id / --notebook-url")
+            return 1
 
     if not notebook_url:
         # Check for active notebook first

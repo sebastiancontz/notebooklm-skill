@@ -213,7 +213,7 @@ Optional `.env` file configuration:
 ```env
 HEADLESS=false           # Browser visibility
 SHOW_BROWSER=false       # Default display
-DEFAULT_NOTEBOOK_ID=     # Default notebook
+DEFAULT_NOTEBOOK_ID=     # Default notebook (must exist in library; fails explicitly if not)
 NOTEBOOKLM_DEBUG=1       # Detailed diagnostics
 ```
 

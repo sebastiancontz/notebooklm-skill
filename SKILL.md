@@ -206,7 +206,7 @@ Optional `.env` file in skill directory:
 ```env
 HEADLESS=false           # Browser visibility
 SHOW_BROWSER=false       # Default browser display
-DEFAULT_NOTEBOOK_ID=     # Default notebook
+DEFAULT_NOTEBOOK_ID=     # Default notebook (must exist in library; fails explicitly if not)
 NOTEBOOKLM_DEBUG=1       # Detailed diagnostics
 ```
 
