@@ -248,20 +248,6 @@ Synthesize and respond to user
 5. **Include context** - Each question is independent
 6. **Synthesize answers** - Combine multiple responses
 
-## Local Project Overrides
-
-Some projects define a local academic overlay for this skill. If the current
-project contains `.claude/skills/notebooklm/LOCAL_OVERRIDES.md`, read it before
-querying: it defines the **Academic Dossier Harvesting Mode** — deep, per-concept
-extraction used when project workflows (e.g. `armar-clase`, `diseno-clase`) need
-source material to build teaching content. Reusable extraction prompts live in
-`.claude/skills/notebooklm/prompts/academic-dossier.md` (same project).
-
-The overlay adds rules on top of this skill; it does NOT replace the core
-technical workflow above (auth, library management, `run.py`). Do not modify
-this skill's core scripts for overlay purposes — local script changes happen
-only as explicit, documented patches tracked against upstream.
-
 ## Limitations
 
 - No session persistence (each question = new browser)
