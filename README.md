@@ -342,12 +342,16 @@ Say: `"Clear NotebookLM browser data"`
 
 ### Dependencies issues
 ```bash
-# Manual reinstall if needed
+# Repair the managed environment first
 cd ~/.claude/skills/notebooklm
+python scripts/run.py --repair
+
+# Manual reinstall if repair fails
 rm -rf .venv
 python -m venv .venv
 source .venv/bin/activate  # or .venv\Scripts\activate on Windows
 pip install -r requirements.txt
+python -m patchright install chrome
 ```
 
 ---

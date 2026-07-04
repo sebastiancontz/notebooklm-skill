@@ -146,6 +146,7 @@ Every NotebookLM answer ends with: **"EXTREMELY IMPORTANT: Is that ALL you need 
 ```bash
 python scripts/run.py auth_manager.py setup    # Initial setup (browser visible)
 python scripts/run.py auth_manager.py status   # Check authentication
+python scripts/run.py auth_manager.py status --validate # Live auth check
 python scripts/run.py auth_manager.py reauth   # Re-authenticate (browser visible)
 python scripts/run.py auth_manager.py clear    # Clear authentication
 ```
@@ -157,19 +158,20 @@ python scripts/run.py notebook_manager.py list
 python scripts/run.py notebook_manager.py search --query QUERY
 python scripts/run.py notebook_manager.py activate --id ID
 python scripts/run.py notebook_manager.py remove --id ID
+python scripts/run.py notebook_manager.py update --id ID [--name NAME] [--description DESC] [--topics TOPICS] [--tags TAGS] [--url URL]
 python scripts/run.py notebook_manager.py stats
 ```
 
 ### Question Interface (`ask_question.py`)
 ```bash
-python scripts/run.py ask_question.py --question "..." [--notebook-id ID] [--notebook-url URL] [--show-browser]
+python scripts/run.py ask_question.py --question "..." [--notebook-id ID] [--notebook-url URL] [--show-browser] [--debug]
 ```
 
 ### Data Cleanup (`cleanup_manager.py`)
 ```bash
 python scripts/run.py cleanup_manager.py                    # Preview cleanup
 python scripts/run.py cleanup_manager.py --confirm          # Execute cleanup
-python scripts/run.py cleanup_manager.py --preserve-library # Keep notebooks
+python scripts/run.py cleanup_manager.py --confirm --preserve-library # Keep notebooks
 ```
 
 ## Environment Management
@@ -177,15 +179,16 @@ python scripts/run.py cleanup_manager.py --preserve-library # Keep notebooks
 The virtual environment is automatically managed:
 - First run creates `.venv` automatically
 - Dependencies install automatically
-- Chromium browser installs automatically
+- Google Chrome installs automatically for Patchright
 - Everything isolated in skill directory
+- Repair manually with `python scripts/run.py --repair` if dependencies drift
 
 Manual setup (only if automatic fails):
 ```bash
 python -m venv .venv
 source .venv/bin/activate  # Linux/Mac
 pip install -r requirements.txt
-python -m patchright install chromium
+python -m patchright install chrome
 ```
 
 ## Data Storage
@@ -203,10 +206,8 @@ Optional `.env` file in skill directory:
 ```env
 HEADLESS=false           # Browser visibility
 SHOW_BROWSER=false       # Default browser display
-STEALTH_ENABLED=true     # Human-like behavior
-TYPING_WPM_MIN=160       # Typing speed
-TYPING_WPM_MAX=240
 DEFAULT_NOTEBOOK_ID=     # Default notebook
+NOTEBOOKLM_DEBUG=1       # Detailed diagnostics
 ```
 
 ## Decision Flow
@@ -236,7 +237,7 @@ Synthesize and respond to user
 | ModuleNotFoundError | Use `run.py` wrapper |
 | Authentication fails | Browser must be visible for setup! --show-browser |
 | Rate limit (50/day) | Wait or switch Google account |
-| Browser crashes | `python scripts/run.py cleanup_manager.py --preserve-library` |
+| Browser crashes | `python scripts/run.py cleanup_manager.py --confirm --preserve-library` |
 | Notebook not found | Check with `notebook_manager.py list` |
 
 ## Best Practices

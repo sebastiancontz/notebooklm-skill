@@ -129,7 +129,7 @@ python scripts/run.py auth_manager.py status
 python scripts/run.py auth_manager.py reauth  # Browser visible!
 
 # If browser crashes
-python scripts/run.py cleanup_manager.py --preserve-library
+python scripts/run.py cleanup_manager.py --confirm --preserve-library
 python scripts/run.py auth_manager.py setup  # Browser visible!
 
 # If rate limited

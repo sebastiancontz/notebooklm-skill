@@ -16,6 +16,7 @@ from patchright.sync_api import BrowserContext, Page
 sys.path.insert(0, str(Path(__file__).parent))
 
 from browser_utils import StealthUtils
+from config import QUERY_INPUT_SELECTORS
 
 
 class BrowserSession:
@@ -67,8 +68,7 @@ class BrowserSession:
             # Wait for page to be ready
             self._wait_for_ready()
 
-            # Simulate human inspection
-            self.stealth.random_mouse_movement(self.page)
+            # Simulate a brief human inspection pause.
             self.stealth.random_delay(300, 600)
 
             print(f"✅ Session {self.id} ready!")
@@ -81,12 +81,14 @@ class BrowserSession:
 
     def _wait_for_ready(self):
         """Wait for NotebookLM page to be ready"""
-        try:
-            # Wait for chat input
-            self.page.wait_for_selector("textarea.query-box-input", timeout=10000, state="visible")
-        except Exception:
-            # Try alternative selector
-            self.page.wait_for_selector('textarea[aria-label="Feld für Anfragen"]', timeout=5000, state="visible")
+        last_error = None
+        for selector in QUERY_INPUT_SELECTORS:
+            try:
+                self.page.wait_for_selector(selector, timeout=10000, state="visible")
+                return selector
+            except Exception as e:
+                last_error = e
+        raise RuntimeError(f"Could not find NotebookLM query input: {last_error}")
 
     def ask(self, question: str) -> Dict[str, Any]:
         """
@@ -108,16 +110,12 @@ class BrowserSession:
             previous_answer = self._snapshot_latest_response()
 
             # Find chat input
-            chat_input_selector = "textarea.query-box-input"
-            try:
-                self.page.wait_for_selector(chat_input_selector, timeout=5000, state="visible")
-            except Exception:
-                chat_input_selector = 'textarea[aria-label="Feld für Anfragen"]'
-                self.page.wait_for_selector(chat_input_selector, timeout=5000, state="visible")
+            chat_input_selector = self._wait_for_ready()
 
             # Click and type with human-like behavior
             self.stealth.realistic_click(self.page, chat_input_selector)
-            self.stealth.human_type(self.page, chat_input_selector, question)
+            if not self.stealth.human_type(self.page, chat_input_selector, question):
+                raise RuntimeError("Could not confirm question text before submit")
 
             # Small pause before submit
             self.stealth.random_delay(300, 800)
