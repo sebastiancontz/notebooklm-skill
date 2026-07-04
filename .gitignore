@@ -72,3 +72,5 @@ htmlcov/
 dist/
 build/
 *.egg-info/
+# Local tool indexes
+.serena/
