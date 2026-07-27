@@ -44,6 +44,59 @@ FOLLOW_UP_REMINDER = (
 )
 
 
+def normalize_text(text):
+    return re.sub(r"\s+", " ", (text or "")).strip()
+
+
+def preview(text, max_len=90):
+    text = normalize_text(text)
+    return text if len(text) <= max_len else text[:max_len - 3] + "..."
+
+
+def count_turn_parts(turns):
+    prompts = sum(1 for turn in turns if turn.get("prompt"))
+    answers = sum(1 for turn in turns if turn.get("answer"))
+    return prompts, answers
+
+
+def find_current_turn(turns, before_counts, before_prompt_counter, target_prompt):
+    """Associate the submitted prompt with its rendered turn without browser state."""
+    before_prompts, before_answers = before_counts
+    prompt_count, answer_count = count_turn_parts(turns)
+    target_prompt = normalize_text(target_prompt)
+
+    if prompt_count == before_prompts:
+        return None, "not_sent"
+
+    current_prompt_counter = Counter(
+        normalize_text(turn.get("prompt"))
+        for turn in turns
+        if turn.get("prompt")
+    )
+    matching_turns = [
+        turn for turn in turns
+        if normalize_text(turn.get("prompt")) == target_prompt
+    ]
+    if (
+        matching_turns
+        and current_prompt_counter[target_prompt] > before_prompt_counter[target_prompt]
+    ):
+        turn = matching_turns[-1]
+        return (turn, "text") if turn.get("answer") else (None, "pending")
+
+    if (
+        prompt_count == before_prompts + 1
+        and answer_count == before_answers + 1
+        and turns[-1].get("answer")
+    ):
+        return turns[-1], "position"
+
+    if prompt_count == before_prompts + 1 and answer_count == before_answers:
+        return None, "pending"
+
+    return None, "unassociated"
+
+
 def ask_notebooklm(
     question: str,
     notebook_url: str,
@@ -120,13 +173,6 @@ def ask_notebooklm(
             print("  ❌ Could not find query input")
             return None
 
-        def normalize_text(text):
-            return re.sub(r"\s+", " ", (text or "")).strip()
-
-        def preview(text, max_len=90):
-            text = normalize_text(text)
-            return text if len(text) <= max_len else text[:max_len - 3] + "..."
-
         def extract_turns():
             return page.evaluate("""() => {
                 const clean = (text) => (text || '').replace(/\\s+/g, ' ').trim();
@@ -142,29 +188,6 @@ def ask_notebooklm(
                     })
                     .filter((turn) => turn.prompt || turn.answer);
             }""")
-
-        def count_turn_parts(turns):
-            prompts = sum(1 for turn in turns if turn.get("prompt"))
-            answers = sum(1 for turn in turns if turn.get("answer"))
-            return prompts, answers
-
-        def find_current_turn(turns, before_prompt_counter, target_prompt):
-            matching_turns = [
-                turn for turn in turns
-                if normalize_text(turn.get("prompt")) == target_prompt
-            ]
-            if not matching_turns:
-                return None
-
-            current_prompt_counter = Counter(
-                normalize_text(turn.get("prompt"))
-                for turn in turns
-                if turn.get("prompt")
-            )
-            if current_prompt_counter[target_prompt] <= before_prompt_counter[target_prompt]:
-                return None
-
-            return matching_turns[-1]
 
         before_turns = extract_turns()
         before_prompts, before_answers = count_turn_parts(before_turns)
@@ -206,8 +229,7 @@ def ask_notebooklm(
         def click_send_button():
             find_send_button = """() => {
                 const buttons = Array.from(document.querySelectorAll('button'));
-                return buttons.find((button) => {
-                    if (button.disabled) return false;
+                const candidates = buttons.filter((button) => {
                     const label = button.getAttribute('aria-label') || '';
                     const icon = button.querySelector('mat-icon');
                     const iconText = icon
@@ -215,16 +237,25 @@ def ask_notebooklm(
                         : '';
                     return /send|submit/i.test(label)
                         || ['send', 'arrow_forward', 'arrow_upward'].includes(iconText);
-                }) || null;
+                });
+                return candidates.find((button) => button.getClientRects().length)
+                    || candidates[0]
+                    || null;
             }"""
 
+            disabled_once = False
             deadline = time.time() + 8
             while time.time() < deadline:
                 try:
                     button = page.evaluate_handle(find_send_button).as_element()
                     if button:
-                        button.click(timeout=2000)
-                        return True
+                        if not button.is_enabled():
+                            if disabled_once:
+                                return "disabled"
+                            disabled_once = True
+                        else:
+                            button.click(timeout=2000)
+                            return "clicked"
                 except Exception:
                     pass
 
@@ -236,11 +267,18 @@ def ask_notebooklm(
                     pass
                 time.sleep(0.5)
 
-            return False
+            return "missing"
 
         # Submit
         debug_log("  📤 Submitting...")
-        if not click_send_button():
+        send_status = click_send_button()
+        if send_status == "disabled":
+            print(
+                f"  ❌ NotebookLM rejected the input ({len(question)} characters): "
+                "it probably exceeds the chat input limit"
+            )
+            return None
+        if send_status == "missing":
             debug_log("  ⚠️ Send button not found/enabled; falling back to Enter")
             page.keyboard.press("Enter")
 
@@ -254,9 +292,11 @@ def ask_notebooklm(
         stable_count = 0
         last_text = None
         captured_turn = None
-        last_turns = []
+        last_turns = before_turns
+        warned_positional_fallback = False
         placeholders = ("finding relevant info", "finding sources", "analyzing")
         target_prompt = normalize_text(question)
+        submit_confirmation_deadline = time.time() + 10
         deadline = time.time() + 120  # 2 minutes timeout
 
         while time.time() < deadline:
@@ -271,7 +311,34 @@ def ask_notebooklm(
 
             turns = extract_turns()
             last_turns = turns
-            current_turn = find_current_turn(turns, before_prompt_counter, target_prompt)
+            current_turn, association = find_current_turn(
+                turns,
+                (before_prompts, before_answers),
+                before_prompt_counter,
+                target_prompt
+            )
+            if association == "not_sent":
+                if time.time() >= submit_confirmation_deadline:
+                    prompt_count, response_count = count_turn_parts(turns)
+                    debug_log(
+                        f"  🔎 After submit attempt: prompts={prompt_count}, "
+                        f"responses={response_count}"
+                    )
+                    print(
+                        "  ❌ Question was not sent to NotebookLM "
+                        "(prompt count did not change)"
+                    )
+                    return None
+                time.sleep(1)
+                continue
+
+            if association == "position" and not warned_positional_fallback:
+                print(
+                    "  ⚠️ Associated the latest answer by position because the "
+                    "rendered prompt did not match the submitted text"
+                )
+                warned_positional_fallback = True
+
             if current_turn:
                 text = normalize_text(current_turn.get("answer"))
                 if text and not any(placeholder in text.lower() for placeholder in placeholders):
@@ -289,7 +356,7 @@ def ask_notebooklm(
                         "  ↩️ Discarded placeholder answer candidate: "
                         f"index={current_turn.get('index')}, preview={preview(current_turn.get('answer'))}"
                     )
-            else:
+            elif association == "unassociated":
                 prompt_count, response_count = count_turn_parts(turns)
                 if prompt_count > before_prompts:
                     last_prompt = next(
@@ -301,13 +368,18 @@ def ask_notebooklm(
                         f"prompts={prompt_count}, responses={response_count}, "
                         f"last_prompt={preview(last_prompt)}"
                     )
-                    before_prompts = prompt_count
 
             time.sleep(1)
 
         if not answer:
             prompt_count, response_count = count_turn_parts(last_turns)
             debug_log(f"  🔎 After timeout: prompts={prompt_count}, responses={response_count}")
+            if prompt_count == before_prompts:
+                print(
+                    "  ❌ Question was not sent to NotebookLM "
+                    "(prompt count did not change)"
+                )
+                return None
             print("  ❌ Could not confidently associate an answer with the latest prompt")
             return None
 

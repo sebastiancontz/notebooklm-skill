@@ -248,6 +248,7 @@ Uses realistic typing speeds and interaction patterns to avoid detection.
 
 ### Core Technology
 - **Patchright**: Browser automation library (Playwright-based)
+- Python browser helpers must import from `patchright.sync_api`, not `playwright.sync_api`
 - **Python**: Implementation language for this skill
 - **Stealth techniques**: Human-like typing and interaction patterns
 
