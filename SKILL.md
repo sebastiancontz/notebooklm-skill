@@ -11,7 +11,7 @@ Interact with Google NotebookLM to query documentation with Gemini's source-grou
 
 Trigger when user:
 - Mentions NotebookLM explicitly
-- Shares NotebookLM URL (`https://notebooklm.google.com/notebook/...`)
+- Shares a NotebookLM URL (`https://notebook.google.com/notebook/...` or legacy `https://notebooklm.google.com/notebook/...`)
 - Asks to query their notebooks/documentation
 - Wants to add documentation to NotebookLM library
 - Uses phrases like "ask my NotebookLM", "check my docs", "query my notebook"

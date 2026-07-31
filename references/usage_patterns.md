@@ -263,7 +263,7 @@ def check_api_usage(api_endpoint):
 
 ```python
 # 1. Detect URL in message
-if "notebooklm.google.com" in user_message:
+if "notebook.google.com" in user_message or "notebooklm.google.com" in user_message:
     url = extract_url(user_message)
 
     # 2. Check if in library

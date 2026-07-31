@@ -14,7 +14,6 @@ import json
 import time
 import argparse
 import shutil
-import re
 import sys
 from pathlib import Path
 from typing import Optional, Dict, Any
@@ -24,7 +23,13 @@ from patchright.sync_api import sync_playwright, BrowserContext
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from config import BROWSER_STATE_DIR, STATE_FILE, AUTH_INFO_FILE, DATA_DIR
+from config import (
+    AUTH_INFO_FILE,
+    BROWSER_STATE_DIR,
+    DATA_DIR,
+    NOTEBOOKLM_URL_PATTERN,
+    STATE_FILE,
+)
 from browser_utils import BrowserFactory
 
 
@@ -114,7 +119,7 @@ class AuthManager:
             page.goto("https://notebooklm.google.com", wait_until="domcontentloaded")
 
             # Check if already authenticated
-            if "notebooklm.google.com" in page.url and "accounts.google.com" not in page.url:
+            if NOTEBOOKLM_URL_PATTERN.match(page.url):
                 print("  ✅ Already authenticated!")
                 self._save_browser_state(context)
                 return True
@@ -124,9 +129,9 @@ class AuthManager:
             print(f"  ⏱️  Waiting up to {timeout_minutes} minutes for login...")
 
             try:
-                # Wait for URL to change to NotebookLM (regex ensures it's the actual domain, not a parameter)
+                # Wait for a recognized NotebookLM domain, not one embedded in a parameter
                 timeout_ms = int(timeout_minutes * 60 * 1000)
-                page.wait_for_url(re.compile(r"^https://notebooklm\.google\.com/"), timeout=timeout_ms)
+                page.wait_for_url(NOTEBOOKLM_URL_PATTERN, timeout=timeout_ms)
 
                 print(f"  ✅ Login successful!")
 
@@ -261,7 +266,7 @@ class AuthManager:
             page.goto("https://notebooklm.google.com", wait_until="domcontentloaded", timeout=30000)
 
             # Check if we can access NotebookLM
-            if "notebooklm.google.com" in page.url and "accounts.google.com" not in page.url:
+            if NOTEBOOKLM_URL_PATTERN.match(page.url):
                 print("  ✅ Authentication is valid")
                 return True
             else:

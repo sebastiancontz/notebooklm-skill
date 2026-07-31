@@ -2,6 +2,7 @@ import unittest
 from collections import Counter
 
 from scripts.ask_question import find_current_turn, normalize_text
+from scripts.config import NOTEBOOKLM_URL_PATTERN
 
 
 class FindCurrentTurnTests(unittest.TestCase):
@@ -58,6 +59,21 @@ class FindCurrentTurnTests(unittest.TestCase):
 
         self.assertIsNone(turn)
         self.assertEqual(association, "pending")
+
+
+class NotebookLMUrlPatternTests(unittest.TestCase):
+    def test_accepts_both_domains_and_rejects_lookalikes(self):
+        for url in (
+            "https://notebooklm.google.com/notebook/id",
+            "https://notebook.google.com/notebook/id",
+        ):
+            self.assertRegex(url, NOTEBOOKLM_URL_PATTERN)
+
+        for url in (
+            "https://evil.example/?next=https://notebook.google.com/notebook/id",
+            "https://notebook.google.com.evil.example/notebook/id",
+        ):
+            self.assertNotRegex(url, NOTEBOOKLM_URL_PATTERN)
 
 
 if __name__ == "__main__":

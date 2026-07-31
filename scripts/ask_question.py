@@ -27,6 +27,7 @@ from config import (
     DEFAULT_HEADLESS,
     DEFAULT_NOTEBOOK_ID,
     NOTEBOOKLM_DEBUG,
+    NOTEBOOKLM_URL_PATTERN,
     QUERY_INPUT_SELECTORS,
     SHOW_BROWSER_DEFAULT,
 )
@@ -148,7 +149,7 @@ def ask_notebooklm(
         page.goto(notebook_url, wait_until="domcontentloaded")
 
         # Wait for NotebookLM
-        page.wait_for_url(re.compile(r"^https://notebooklm\.google\.com/"), timeout=10000)
+        page.wait_for_url(NOTEBOOKLM_URL_PATTERN, timeout=10000)
 
         # Wait for query input (MCP approach)
         debug_log("  ⏳ Waiting for query input...")

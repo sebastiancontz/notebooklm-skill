@@ -4,6 +4,7 @@ Centralizes constants, selectors, and paths
 """
 
 import os
+import re
 from pathlib import Path
 
 # Paths
@@ -29,6 +30,9 @@ def _env_bool(name: str, default: bool = False) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+# NotebookLM URLs
+NOTEBOOKLM_URL_PATTERN = re.compile(r"^https://notebook(?:lm)?\.google\.com/")
 
 # NotebookLM Selectors
 QUERY_INPUT_SELECTORS = [
