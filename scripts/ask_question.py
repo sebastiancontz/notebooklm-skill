@@ -60,6 +60,12 @@ def count_turn_parts(turns):
     return prompts, answers
 
 
+def update_history_stability(previous_snapshot, current_snapshot, stable_polls):
+    """Require two unchanged polls before treating chat history as loaded."""
+    stable_polls = stable_polls + 1 if current_snapshot == previous_snapshot else 0
+    return stable_polls, stable_polls >= 2
+
+
 def find_current_turn(turns, before_counts, before_prompt_counter, target_prompt):
     """Associate the submitted prompt with its rendered turn without browser state."""
     before_prompts, before_answers = before_counts
@@ -197,6 +203,8 @@ def ask_notebooklm(
             for turn in before_turns
             if turn.get("prompt")
         )
+        before_snapshot = (before_prompt_counter, before_prompts, before_answers)
+        stable_history_polls = 0
         settle_deadline = time.time() + 15
         while time.time() < settle_deadline:
             time.sleep(1.5)
@@ -207,16 +215,19 @@ def ask_notebooklm(
                 for turn in now_turns
                 if turn.get("prompt")
             )
-            if (
-                now_prompt_counter == before_prompt_counter
-                and now_prompts == before_prompts
-                and now_answers == before_answers
-            ):
-                break
+            now_snapshot = (now_prompt_counter, now_prompts, now_answers)
+            stable_history_polls, history_is_stable = update_history_stability(
+                before_snapshot,
+                now_snapshot,
+                stable_history_polls,
+            )
             before_turns = now_turns
             before_prompts = now_prompts
             before_answers = now_answers
             before_prompt_counter = now_prompt_counter
+            before_snapshot = now_snapshot
+            if history_is_stable:
+                break
 
         debug_log(f"  🔎 Before submit: prompts={before_prompts}, responses={before_answers}")
 
@@ -326,8 +337,8 @@ def ask_notebooklm(
                         f"responses={response_count}"
                     )
                     print(
-                        "  ❌ Question was not sent to NotebookLM "
-                        "(prompt count did not change)"
+                        "  ❌ La pregunta no se envió a NotebookLM "
+                        "(el contador de preguntas no cambió)"
                     )
                     return None
                 time.sleep(1)
@@ -377,11 +388,20 @@ def ask_notebooklm(
             debug_log(f"  🔎 After timeout: prompts={prompt_count}, responses={response_count}")
             if prompt_count == before_prompts:
                 print(
-                    "  ❌ Question was not sent to NotebookLM "
-                    "(prompt count did not change)"
+                    "  ❌ La pregunta no se envió a NotebookLM "
+                    "(el contador de preguntas no cambió)"
                 )
                 return None
-            print("  ❌ Could not confidently associate an answer with the latest prompt")
+            if response_count == before_answers:
+                print(
+                    "  ❌ La pregunta se envió, pero NotebookLM no produjo una "
+                    "respuesta antes del límite de espera"
+                )
+                return None
+            print(
+                "  ❌ NotebookLM produjo una respuesta, pero no fue posible "
+                "asociarla con la pregunta enviada"
+            )
             return None
 
         prompt_count, response_count = count_turn_parts(last_turns)

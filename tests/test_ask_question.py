@@ -1,7 +1,11 @@
 import unittest
 from collections import Counter
 
-from scripts.ask_question import find_current_turn, normalize_text
+from scripts.ask_question import (
+    find_current_turn,
+    normalize_text,
+    update_history_stability,
+)
 from scripts.config import NOTEBOOKLM_URL_PATTERN
 
 
@@ -74,6 +78,32 @@ class NotebookLMUrlPatternTests(unittest.TestCase):
             "https://notebook.google.com.evil.example/notebook/id",
         ):
             self.assertNotRegex(url, NOTEBOOKLM_URL_PATTERN)
+
+
+class HistoryStabilityTests(unittest.TestCase):
+    def test_transient_empty_history_does_not_settle(self):
+        empty_snapshot = (Counter(), 0, 0)
+        loaded_snapshot = (Counter({"Historical question": 10}), 10, 10)
+
+        stable_polls, settled = update_history_stability(
+            empty_snapshot, empty_snapshot, 0
+        )
+        self.assertEqual((stable_polls, settled), (1, False))
+
+        stable_polls, settled = update_history_stability(
+            empty_snapshot, loaded_snapshot, stable_polls
+        )
+        self.assertEqual((stable_polls, settled), (0, False))
+
+        stable_polls, settled = update_history_stability(
+            loaded_snapshot, loaded_snapshot, stable_polls
+        )
+        self.assertEqual((stable_polls, settled), (1, False))
+
+        self.assertEqual(
+            update_history_stability(loaded_snapshot, loaded_snapshot, stable_polls),
+            (2, True),
+        )
 
 
 if __name__ == "__main__":
