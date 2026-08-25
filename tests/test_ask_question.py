@@ -2,6 +2,7 @@ import unittest
 from collections import Counter
 
 from scripts.ask_question import (
+    completed_answer,
     find_current_turn,
     normalize_text,
     update_history_stability,
@@ -104,6 +105,38 @@ class HistoryStabilityTests(unittest.TestCase):
             update_history_stability(loaded_snapshot, loaded_snapshot, stable_polls),
             (2, True),
         )
+
+
+class CompletedAnswerTests(unittest.TestCase):
+    def test_rejects_reasoning_chips_and_accepts_completed_answer(self):
+        chips = (
+            "Evaluating the Context... expand_more",
+            "Listed files... expand_more",
+            "Initiating the Analysis... expand_more",
+            "Defining the Objective... expand_more",
+            "Developing Collection Analysis... expand_more",
+        )
+
+        for text in chips:
+            with self.subTest(text=text):
+                self.assertIsNone(completed_answer({
+                    "answer": text,
+                    "is_complete": False,
+                }))
+
+        self.assertEqual(
+            completed_answer({
+                "answer": "Thoughts expand_more\nComplete answer body.",
+                "is_complete": True,
+            }),
+            "Thoughts expand_more Complete answer body.",
+        )
+
+    def test_rejects_stable_but_incomplete_body(self):
+        self.assertIsNone(completed_answer({
+            "answer": "OBJETIVO-PASO: Paso 2, debido a que el objetivo declara evaluar el",
+            "is_complete": False,
+        }))
 
 
 if __name__ == "__main__":

@@ -28,6 +28,7 @@ from config import (
     DEFAULT_NOTEBOOK_ID,
     NOTEBOOKLM_DEBUG,
     NOTEBOOKLM_URL_PATTERN,
+    QUERY_TIMEOUT_SECONDS,
     QUERY_INPUT_SELECTORS,
     SHOW_BROWSER_DEFAULT,
 )
@@ -64,6 +65,13 @@ def update_history_stability(previous_snapshot, current_snapshot, stable_polls):
     """Require two unchanged polls before treating chat history as loaded."""
     stable_polls = stable_polls + 1 if current_snapshot == previous_snapshot else 0
     return stable_polls, stable_polls >= 2
+
+
+def completed_answer(turn):
+    """Devuelve texto solo cuando NotebookLM monta la barra final de acciones."""
+    if not turn or not turn.get("is_complete"):
+        return None
+    return normalize_text(turn.get("answer")) or None
 
 
 def find_current_turn(turns, before_counts, before_prompt_counter, target_prompt):
@@ -186,11 +194,24 @@ def ask_notebooklm(
                 return Array.from(document.querySelectorAll('.chat-message-pair'))
                     .map((pair, index) => {
                         const promptEl = pair.querySelector('.from-user-container .message-text-content');
-                        const answerEl = pair.querySelector('.to-user-container .message-text-content');
+                        const answerContainer = pair.querySelector('.to-user-container');
+                        const answerEl = answerContainer
+                            ? answerContainer.querySelector('.message-text-content')
+                            : null;
+                        const answerMessage = answerEl
+                            ? answerEl.closest('chat-message') || answerContainer
+                            : answerContainer;
+                        const hasCopyAction = answerMessage
+                            ? Array.from(answerMessage.querySelectorAll('button mat-icon'))
+                                .some((icon) => ['content_copy', 'copy_all'].includes(
+                                    clean(icon.getAttribute('fonticon') || icon.textContent)
+                                ))
+                            : false;
                         return {
                             index,
                             prompt: clean(promptEl ? promptEl.innerText : ''),
-                            answer: clean(answerEl ? answerEl.innerText : '')
+                            answer: clean(answerEl ? answerEl.innerText : ''),
+                            is_complete: hasCopyAction
                         };
                     })
                     .filter((turn) => turn.prompt || turn.answer);
@@ -297,30 +318,19 @@ def ask_notebooklm(
         # Small pause
         StealthUtils.random_delay(500, 1500)
 
-        # Wait for response (MCP approach: poll for stable text)
+        # Esperar hasta que NotebookLM monte la barra final de acciones.
         debug_log("  ⏳ Waiting for answer...")
 
         answer = None
-        stable_count = 0
-        last_text = None
         captured_turn = None
+        last_current_turn = None
         last_turns = before_turns
         warned_positional_fallback = False
-        placeholders = ("finding relevant info", "finding sources", "analyzing")
         target_prompt = normalize_text(question)
         submit_confirmation_deadline = time.time() + 10
-        deadline = time.time() + 120  # 2 minutes timeout
+        deadline = time.time() + QUERY_TIMEOUT_SECONDS
 
         while time.time() < deadline:
-            # Check if NotebookLM is still thinking (most reliable indicator)
-            try:
-                thinking_element = page.query_selector('div.thinking-message')
-                if thinking_element and thinking_element.is_visible():
-                    time.sleep(1)
-                    continue
-            except:
-                pass
-
             turns = extract_turns()
             last_turns = turns
             current_turn, association = find_current_turn(
@@ -352,22 +362,11 @@ def ask_notebooklm(
                 warned_positional_fallback = True
 
             if current_turn:
-                text = normalize_text(current_turn.get("answer"))
-                if text and not any(placeholder in text.lower() for placeholder in placeholders):
-                    if text == last_text:
-                        stable_count += 1
-                        if stable_count >= 3:  # Stable for 3 polls
-                            answer = text
-                            captured_turn = current_turn
-                            break
-                    else:
-                        stable_count = 0
-                        last_text = text
-                elif current_turn.get("answer"):
-                    debug_log(
-                        "  ↩️ Discarded placeholder answer candidate: "
-                        f"index={current_turn.get('index')}, preview={preview(current_turn.get('answer'))}"
-                    )
+                last_current_turn = current_turn
+                answer = completed_answer(current_turn)
+                if answer:
+                    captured_turn = current_turn
+                    break
             elif association == "unassociated":
                 prompt_count, response_count = count_turn_parts(turns)
                 if prompt_count > before_prompts:
@@ -390,6 +389,12 @@ def ask_notebooklm(
                 print(
                     "  ❌ La pregunta no se envió a NotebookLM "
                     "(el contador de preguntas no cambió)"
+                )
+                return None
+            if last_current_turn and last_current_turn.get("answer"):
+                print(
+                    "  Error: la pregunta se envió, pero NotebookLM no terminó de "
+                    "generar la respuesta antes del límite de espera"
                 )
                 return None
             if response_count == before_answers:
