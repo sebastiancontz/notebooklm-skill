@@ -4,6 +4,7 @@ from collections import Counter
 from scripts.ask_question import (
     completed_answer,
     find_current_turn,
+    format_submit_diagnostics,
     normalize_text,
     update_history_stability,
 )
@@ -137,6 +138,43 @@ class CompletedAnswerTests(unittest.TestCase):
             "answer": "OBJETIVO-PASO: Paso 2, debido a que el objetivo declara evaluar el",
             "is_complete": False,
         }))
+
+
+class SubmitDiagnosticsTests(unittest.TestCase):
+    def test_reports_observed_state_without_inventing_a_length_limit(self):
+        report = format_submit_diagnostics("Pregunta breve de 33 caracteres", {
+            "input": {
+                "value": "Pregunta breve de 33 caracteres",
+                "maxLength": -1,
+                "classes": ["ng-dirty", "ng-valid"],
+            },
+            "button": {
+                "disabled": True,
+                "disabledAttribute": "",
+                "ariaLabel": "Send",
+            },
+            "notices": [],
+        })
+
+        self.assertIn("sin maxlength", report)
+        self.assertIn("disabled=True", report)
+        self.assertIn("cuota u otra restricción", report)
+        self.assertNotIn("excede", report)
+
+    def test_flags_only_the_observed_angular_and_maxlength_signals(self):
+        report = format_submit_diagnostics("12345", {
+            "input": {
+                "value": "12345",
+                "maxLength": 5,
+                "classes": ["ng-pristine", "ng-invalid"],
+            },
+            "button": {"disabled": True, "disabledAttribute": "", "ariaLabel": "Send"},
+            "notices": ["Maximum length reached"],
+        })
+
+        self.assertIn("Angular no registró", report)
+        self.assertIn("alcanzó el maxlength real", report)
+        self.assertIn("Aviso visible: Maximum length reached", report)
 
 
 if __name__ == "__main__":

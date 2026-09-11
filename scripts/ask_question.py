@@ -74,6 +74,44 @@ def completed_answer(turn):
     return normalize_text(turn.get("answer")) or None
 
 
+def format_submit_diagnostics(question, state):
+    """Format observed chat state without guessing why submission is disabled."""
+    input_state = state.get("input") or {}
+    button_state = state.get("button") or {}
+    value = input_state.get("value") or ""
+    classes = input_state.get("classes") or []
+    max_length = input_state.get("maxLength", -1)
+    notices = state.get("notices") or []
+    angular_state = ", ".join(
+        name for name in ("ng-pristine", "ng-dirty", "ng-invalid", "ng-valid")
+        if name in classes
+    ) or "clases Angular no encontradas"
+    max_length_text = "sin maxlength" if max_length < 0 else f"maxlength={max_length}"
+    lines = [
+        "  ❌ El botón de envío sigue deshabilitado; la causa no se puede afirmar sin evidencia.",
+        f"  🔎 Textarea DOM: {value!r} ({len(value)} caracteres; {max_length_text})",
+        f"  🔎 Angular: {angular_state}",
+        "  🔎 Botón: "
+        f"disabled={button_state.get('disabled')!r}; "
+        f"atributo disabled={button_state.get('disabledAttribute')!r}; "
+        f"aria-label={button_state.get('ariaLabel')!r}",
+    ]
+    if notices:
+        lines.append(f"  🔎 Aviso visible: {' | '.join(notices)}")
+    if value != question:
+        lines.append("  ⚠️ El DOM no conserva exactamente la pregunta enviada.")
+    if "ng-dirty" not in classes or "ng-pristine" in classes:
+        lines.append("  ⚠️ Angular no registró el cambio como modificado.")
+    if max_length >= 0 and len(value) >= max_length:
+        lines.append("  ⚠️ El texto alcanzó el maxlength real del textarea.")
+    if not notices and value == question and "ng-dirty" in classes:
+        lines.append(
+            "  ⚠️ No hay un aviso visible que explique el bloqueo; la cuota u otra restricción "
+            "del chat siguen sin confirmar."
+        )
+    return "\n".join(lines)
+
+
 def find_current_turn(turns, before_counts, before_prompt_counter, target_prompt):
     """Associate the submitted prompt with its rendered turn without browser state."""
     before_prompts, before_answers = before_counts
@@ -292,24 +330,62 @@ def ask_notebooklm(
                 except Exception:
                     pass
 
-                try:
-                    page.locator(input_selector).first.click(timeout=1000)
-                    page.keyboard.type(" ")
-                    page.keyboard.press("Backspace")
-                except Exception:
-                    pass
                 time.sleep(0.5)
 
             return "missing"
+
+        def capture_submit_state():
+            return page.evaluate("""(selector) => {
+                const clean = (text) => (text || '').replace(/\\s+/g, ' ').trim();
+                const visible = (element) => Boolean(
+                    element && (element.offsetWidth || element.offsetHeight || element.getClientRects().length)
+                );
+                const input = document.querySelector(selector);
+                const buttons = Array.from(document.querySelectorAll('button'));
+                const button = buttons.find((candidate) => {
+                    const label = candidate.getAttribute('aria-label') || '';
+                    const icon = candidate.querySelector('mat-icon');
+                    const iconText = icon
+                        ? clean(icon.getAttribute('fonticon') || icon.textContent)
+                        : '';
+                    return visible(candidate) && (
+                        /send|submit/i.test(label)
+                        || ['send', 'arrow_forward', 'arrow_upward'].includes(iconText)
+                    );
+                });
+                const container = input
+                    ? input.closest('chat-panel, .chat-panel, [class*="chat"]')
+                        || input.parentElement?.parentElement
+                    : document.body;
+                const notices = container
+                    ? Array.from(container.querySelectorAll(
+                        '[role="alert"], [aria-live], .mat-mdc-form-field-error, .mat-mdc-form-field-hint'
+                    ))
+                        .filter(visible)
+                        .map((element) => clean(element.innerText))
+                        .filter(Boolean)
+                        .slice(0, 3)
+                    : [];
+                return {
+                    input: input ? {
+                        value: input.value || '',
+                        maxLength: input.maxLength,
+                        classes: Array.from(input.classList),
+                    } : null,
+                    button: button ? {
+                        disabled: button.disabled,
+                        disabledAttribute: button.getAttribute('disabled'),
+                        ariaLabel: button.getAttribute('aria-label'),
+                    } : null,
+                    notices,
+                };
+            }""", input_selector)
 
         # Submit
         debug_log("  📤 Submitting...")
         send_status = click_send_button()
         if send_status == "disabled":
-            print(
-                f"  ❌ NotebookLM rejected the input ({len(question)} characters): "
-                "it probably exceeds the chat input limit"
-            )
+            print(format_submit_diagnostics(question, capture_submit_state()))
             return None
         if send_status == "missing":
             debug_log("  ⚠️ Send button not found/enabled; falling back to Enter")

@@ -112,8 +112,7 @@ class BrowserSession:
             # Find chat input
             chat_input_selector = self._wait_for_ready()
 
-            # Click and type with human-like behavior
-            self.stealth.realistic_click(self.page, chat_input_selector)
+            # human_type focuses in page context, so overlays cannot intercept a click.
             if not self.stealth.human_type(self.page, chat_input_selector, question):
                 raise RuntimeError("Could not confirm question text before submit")
 
