@@ -239,10 +239,15 @@ def ask_notebooklm(
                         const answerMessage = answerEl
                             ? answerEl.closest('chat-message') || answerContainer
                             : answerContainer;
+                        // NotebookLM renombró el ícono de content_copy a copy (2026-10);
+                        // la etiqueta del botón es la señal más estable
                         const hasCopyAction = answerMessage
-                            ? Array.from(answerMessage.querySelectorAll('button mat-icon'))
-                                .some((icon) => ['content_copy', 'copy_all'].includes(
-                                    clean(icon.getAttribute('fonticon') || icon.textContent)
+                            ? Array.from(answerMessage.querySelectorAll('button')).some((button) =>
+                                /^copy model response/i.test(clean(button.getAttribute('aria-label')))
+                                || Array.from(button.querySelectorAll('mat-icon')).some((icon) =>
+                                    ['content_copy', 'copy_all', 'copy'].includes(
+                                        clean(icon.getAttribute('fonticon') || icon.textContent)
+                                    )
                                 ))
                             : false;
                         return {
